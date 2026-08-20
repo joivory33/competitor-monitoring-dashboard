@@ -35,28 +35,25 @@ channels = st.sidebar.multiselect(
 )
 
 st.sidebar.subheader("🔑 네이버 API 인증키 입력")
-client_id = st.sidebar.text_input("Naver Client ID", type="password", help="네이버 개발자 센터에서 발급받은 Client ID를 입력하세요.")
-client_secret = st.sidebar.text_input("Naver Client Secret", type="password", help="네이버 개발자 센터에서 발급받은 Client Secret을 입력하세요.")
+client_id = st.sidebar.text_input("Naver Client ID", type="password")
+client_secret = st.sidebar.text_input("Naver Client Secret", type="password")
 
 
-# 3. 네이버 날짜 데이터 규격 분석 및 파싱 함수 (기간 필터링용)
+# 3. 네이버 날짜 데이터 파싱 함수
 def parse_naver_date(date_str, item_type):
-    """뉴스(RFC 822) 및 블로그(YYYYMMDD)의 발행일을 파이썬 날짜 객체로 변환합니다."""
     if not date_str:
         return None
     try:
         if item_type == "news":
-            # 예시: "Thu, 20 Aug 2026 10:24:00 +0900"
             parsed_dt = email.utils.parsedate_to_datetime(date_str)
             return parsed_dt.date()
         elif item_type == "blog":
-            # 예시: "20260820"
             return datetime.datetime.strptime(str(date_str).strip(), "%Y%m%d").date()
     except Exception:
         return None
 
 
-# 4. 텍스트 유사도 비교 함수 (80% 중복 제거 알고리즘)
+# 4. 텍스트 유사도 비교 함수 (75% 중복 제거)
 def get_char_ngrams(text, n=2):
     clean_text = "".join(text.split())
     return set(clean_text[i:i+n] for i in range(len(clean_text) - n + 1))
@@ -95,7 +92,7 @@ def filter_duplicates(df, threshold=0.75):
     return df.loc[keep_indices].reset_index(drop=True)
 
 
-# 5. 데이터 수집 함수 (기간 필터 완벽 보완)
+# 5. 데이터 수집 및 정제 함수 (수정 완료!)
 def fetch_naver_data(query, search_type, start_dt, end_dt):
     if not client_id or not client_secret:
         return None
@@ -105,11 +102,16 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
     }
+    
+    # 🎯 [수정 1] 정렬을 다시 정확도순('sim')으로 변경하여 스팸 게시글을 원천 배제합니다.
     params = {
         "query": query,
-        "display": 100,  # 기간 내 기사를 최대한 많이 발굴하기 위해 최대 한도로 수집
-        "sort": "date"   # 최신순 정렬을 통해 대상 기간 기사가 누락 없이 걸려들게 합니다.
+        "display": 100,
+        "sort": "sim"
     }
+    
+    # 키워드 필터용 타겟 단어 설정
+    clean_query = query.split("(")[0].strip() # "놀(NOL)" -> "놀" 또는 "NOL" 검사용
     
     try:
         response = requests.get(url, headers=headers, params=params)
@@ -123,14 +125,24 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
                 description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", '"')
                 link = item['link']
                 
-                # 날짜 정보 판별 및 파싱
+                # 🎯 [수정 2] 본문이나 제목에 진짜 브랜드명이 들어있는지 교차 검증 (무관한 일상 글 배제)
+                text_to_check = (title + " " + description).lower()
+                
+                # '놀(NOL)'의 경우 일상어 '놀다' 등과 구분하기 위해 브랜드 고유 키워드 체크
+                if query == "놀(NOL)":
+                    if "놀 카드" not in text_to_check and "nol 카드" not in text_to_check and "야놀자" not in text_to_check:
+                        continue
+                else:
+                    if clean_query.lower() not in text_to_check:
+                        continue
+                
+                # 날짜 파싱 및 사용자가 설정한 기간 범위 체크
                 raw_pub_date = item.get('pubDate') if search_type == "news" else item.get('postdate')
                 parsed_date = parse_naver_date(raw_pub_date, search_type)
                 
-                # 🎯 [핵심 보완] 사용자가 설정한 시작일과 종료일 범위 내에 있는 글만 엄격하게 수집합니다.
                 if parsed_date:
                     if not (start_dt <= parsed_date <= end_dt):
-                        continue  # 기간 밖의 글은 저장하지 않고 건너뜁니다.
+                        continue
                 
                 data_list.append({
                     "브랜드": query,
@@ -146,7 +158,7 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
     return None
 
 
-# 6. 브랜드별 전체 활동 요약 자동 생성기
+# 6. 브랜드별 요약 브리핑 생성기
 def generate_brand_briefing(brand, df_brand):
     if df_brand.empty:
         return "선택하신 기간 내 수집된 활동 데이터가 없습니다."
@@ -159,10 +171,10 @@ def generate_brand_briefing(brand, df_brand):
     
     if news_count > 0:
         top_news = df_brand[df_brand["구분"] == "뉴스"].iloc[0]["제목"]
-        brief += f"- **주요 마케팅/비즈니스 이슈**: \"{top_news}\" 등을 중심으로 주요 미디어 노출이 발생했습니다.\n"
+        brief += f"- **주요 마케팅/비즈니스 이슈**: \"{top_news}\"\n"
     if blog_count > 0:
         top_blog = df_brand[df_brand["구분"] == "블로그"].iloc[0]["제목"]
-        brief += f"- **소비자 반응 및 바이럴**: 블로그 채널에서는 \"{top_blog}\" 콘텐츠가 주목을 받았습니다.\n"
+        brief += f"- **소비자 반응 및 바이럴**: \"{top_blog}\"\n"
         
     return brief
 
@@ -173,7 +185,6 @@ if st.button("📊 수집 및 요약 시작"):
         st.warning("동향을 파악할 브랜드를 선택해 주세요.")
     else:
         if not client_id or not client_secret:
-            # 💡 [친절한 안내문 업데이트] API 키 미입력 상태 시 아래 안내 박스가 노출됩니다.
             st.info("💡 실시간 데이터 수집을 시작하려면 **왼쪽 사이드바**에 API 인증키를 입력해야 합니다.")
         else:
             all_dfs = []
@@ -192,17 +203,12 @@ if st.button("📊 수집 및 요약 시작"):
                     raw_df = pd.concat(all_dfs, ignore_index=True)
                     raw_count = len(raw_df)
                     
-                    # 중복 정제 실행 (기준값: 75% 유사도)
                     final_df = filter_duplicates(raw_df, threshold=0.75)
                     filtered_count = len(final_df)
-                    st.success(f"설정 기간({start_date} ~ {end_date}) 동안 총 {raw_count}건의 기사 중 중복을 완벽 필터링하고 **최종 {filtered_count}건**의 엄선된 데이터만 추출했습니다!")
+                    st.success(f"설정 기간({start_date} ~ {end_date}) 동안 중복과 노이즈를 완벽 필터링하고 **최종 {filtered_count}건**의 관련성 높은 데이터를 추출했습니다!")
                     
-                    # -----------------------------------------------------------------
-                    # [섹션 1] 한눈에 보는 브랜드별 전체 요약본
-                    # -----------------------------------------------------------------
+                    # [섹션 1] 브랜드 브리핑
                     st.header("🎯 브랜드별 전체 동향 브리핑")
-                    st.markdown("수집된 방대한 콘텐츠를 마케팅 분석 관점에서 압축하여 보여줍니다.")
-                    
                     cols = st.columns(2)
                     for i, brand in enumerate(selected_brands):
                         brand_df = final_df[final_df["브랜드"] == brand]
@@ -214,12 +220,8 @@ if st.button("📊 수집 및 요약 시작"):
                                 
                     st.markdown("---")
                     
-                    # -----------------------------------------------------------------
-                    # [섹션 2] 브랜드별 상세 내용 및 원문 링크 표 (탭 구조)
-                    # -----------------------------------------------------------------
+                    # [섹션 2] 상세 원문 (탭 구조)
                     st.header("📋 세부 원문 목록 및 상세 요약")
-                    st.markdown("원하는 브랜드를 탭으로 선택해 상세 요약본과 원문 링크를 직접 확인하실 수 있습니다.")
-                    
                     tabs = st.tabs(selected_brands)
                     for i, brand in enumerate(selected_brands):
                         with tabs[i]:
@@ -241,22 +243,18 @@ if st.button("📊 수집 및 요약 시작"):
 
 
 # -----------------------------------------------------------------
-# 💡 [친절한 이용 안내 가이드] 대시보드 하단에 상시 배치되는 가이드 카드
+# 🎯 [핵심만 남긴 심플 이용 안내 가이드]
 # -----------------------------------------------------------------
 st.markdown("---")
-with st.expander("🔑 3분 만에 무료로 '네이버 검색 API 인증키' 발급받는 방법 안내", expanded=True):
+with st.container(border=True):
     st.markdown("""
-    이 대시보드는 네이버 검색 서버와 안전하게 통신하기 위해 사용자 개별 **API 출입키**를 활용합니다. 아래 절차대로 접속하셔서 무료 키를 발급받아 입력해 주세요!
+    ### 🔑 네이버 API 인증키 발급 및 이용 안내
+    본 대시보드는 네이버 실시간 검색 데이터를 안전하게 수집하기 위해 사용자 개인 API 인증키를 사용합니다.
     
-    1. **[네이버 개발자 센터 공식 링크](https://developers.naver.com/main/)** 주소로 접속합니다.
-    2. 소지하고 계신 개인 네이버 아이디로 **로그인**을 진행합니다.
-    3. 상단 메뉴에서 **`Application (애플리케이션)`** ➡️ **`내 애플리케이션`** 메뉴로 진입합니다.
-    4. **`애플리케이션 등록`** 버튼을 누른 후 아래 정보를 입력합니다:
-       * **애플리케이션 이름**: `마켓 모니터링 대시보드` (자유롭게 입력 가능)
-       * **사용 API**: 검색창에서 **`검색`**을 선택하고 추가합니다.
-       * **로그인 오픈 API 서비스 환경**: **`웹 설정`**을 선택하고, 주소창에 현재 보고 계신 본인의 스트림릿 대시보드 주소를 복사해 입력합니다.
-    5. 최종 등록을 완료하시면 **`Client ID`**와 **`Client Secret`** 키가 화면에 나타납니다!
-    6. 이 발급받은 두 가지 키를 왼쪽 사이드바의 입력 칸에 각각 복사해서 넣으신 뒤, **[📊 수집 및 요약 시작]** 버튼을 누르시면 됩니다.
-    
-    ※ 한 번 입력한 API 키는 웹브라우저 창을 완전히 닫기 전까지 메모리에 안전하게 임시 보존되므로 연속 사용 시 편리합니다.
+    1. **[네이버 개발자 센터](https://developers.naver.com/main/)** 로그인 후 접속
+    2. 상단 메뉴 **`Application` ➡️ `내 애플리케이션`** 이동
+    3. **`애플리케이션 등록`** 진행
+       - **사용 API**: `검색` 선택 후 추가
+       - **로그인 오픈 API 서비스 환경**: `웹 설정` 선택 ➡️ 현재 사용 중인 대시보드 URL 주소 입력
+    4. 발급 완료된 **`Client ID`**와 **`Client Secret`**을 왼쪽 사이드바에 복사하여 입력
     """)
