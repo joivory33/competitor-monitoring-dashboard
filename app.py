@@ -14,6 +14,47 @@ st.set_page_config(
 st.title("📰 경쟁사 뉴스 및 블로그 모니터링 요약")
 st.markdown("설정한 기간 동안 **여기어때, 트립닷컴, 에어비앤비, 모두투어, 클룩, NOL** 관련 핵심 동향을 분석합니다.")
 
+# -----------------------------------------------------------------
+# 🔑 [UI 개선] API 세션 키 상태 관리 및 메인 화면 입력창
+# -----------------------------------------------------------------
+if "naver_client_id" not in st.session_state:
+    st.session_state.naver_client_id = ""
+if "naver_client_secret" not in st.session_state:
+    st.session_state.naver_client_secret = ""
+if "api_authenticated" not in st.session_state:
+    st.session_state.api_authenticated = False
+
+# API 인증 완료 여부에 따라 UI 분기
+if not st.session_state.api_authenticated:
+    st.markdown("### 🔑 실시간 데이터 수집을 위한 API 인증")
+    st.info("실시간 동향 수집을 시작하려면 아래에 네이버 검색 API 인증키를 입력해 주세요.")
+    
+    col_id, col_secret = st.columns(2)
+    with col_id:
+        input_id = st.text_input("Naver Client ID", type="password", key="temp_id")
+    with col_secret:
+        input_secret = st.text_input("Naver Client Secret", type="password", key="temp_secret")
+        
+    if st.button("🔑 인증키 등록 및 로그인"):
+        if input_id and input_secret:
+            st.session_state.naver_client_id = input_id
+            st.session_state.naver_client_secret = input_secret
+            st.session_state.api_authenticated = True
+            st.rerun()  # 화면을 즉시 새로고침하여 입력창을 숨김
+        else:
+            st.error("Client ID와 Client Secret을 모두 입력해 주세요.")
+else:
+    # 인증 완료 상태 메시지 및 로그아웃(초기화) 버튼 제공
+    col_status, col_btn = st.columns([5, 1])
+    with col_status:
+        st.success("✅ 네이버 API 인증 완료 - 대시보드가 정상적으로 가동 중입니다.")
+    with col_btn:
+        if st.button("🔌 API 인증 로그아웃"):
+            st.session_state.naver_client_id = ""
+            st.session_state.naver_client_secret = ""
+            st.session_state.api_authenticated = False
+            st.rerun()
+
 # 2. 사이드바 구성
 st.sidebar.header("🔍 설정 필터")
 
@@ -34,9 +75,27 @@ channels = st.sidebar.multiselect(
     default=["뉴스", "블로그"]
 )
 
-st.sidebar.subheader("🔑 네이버 API 인증키 입력")
-client_id = st.sidebar.text_input("Naver Client ID", type="password")
-client_secret = st.sidebar.text_input("Naver Client Secret", type="password")
+# -----------------------------------------------------------------
+# 🎯 [UI 개선] API 미인증 시에만 사이드바 하단에 이용 안내 노출 (인증 시 자동 숨김)
+# -----------------------------------------------------------------
+if not st.session_state.api_authenticated:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+    ### 🔑 API 인증키 발급 가이드
+    
+    1. **[네이버 개발자 센터](https://developers.naver.com/main/)** 접속/로그인
+    2. **`Application` ➡️ `내 애플리케이션`**
+    3. **`애플리케이션 등록`** 진행
+       - **사용 API**: `검색` 추가
+       - **서비스 환경**: `웹 설정` 선택 후 현재 대시보드 URL 주소 입력
+    4. 발급된 **Client ID / Secret**을 메인 화면에 입력
+    """)
+
+# -----------------------------------------------------------------
+# API 로직 데이터 바인딩
+# -----------------------------------------------------------------
+client_id = st.session_state.naver_client_id
+client_secret = st.session_state.naver_client_secret
 
 
 # 3. 네이버 날짜 데이터 파싱 함수
@@ -92,7 +151,7 @@ def filter_duplicates(df, threshold=0.75):
     return df.loc[keep_indices].reset_index(drop=True)
 
 
-# 5. 데이터 수집 및 정제 함수 (수정 완료!)
+# 5. 데이터 수집 및 정제 함수 (정확도순 수집 + 키워드 상호 대조)
 def fetch_naver_data(query, search_type, start_dt, end_dt):
     if not client_id or not client_secret:
         return None
@@ -102,16 +161,13 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
     }
-    
-    # 🎯 [수정 1] 정렬을 다시 정확도순('sim')으로 변경하여 스팸 게시글을 원천 배제합니다.
     params = {
         "query": query,
         "display": 100,
-        "sort": "sim"
+        "sort": "sim"  # 브랜드 데이터 품질 향상을 위해 정확도순으로 유지
     }
     
-    # 키워드 필터용 타겟 단어 설정
-    clean_query = query.split("(")[0].strip() # "놀(NOL)" -> "놀" 또는 "NOL" 검사용
+    clean_query = query.split("(")[0].strip()
     
     try:
         response = requests.get(url, headers=headers, params=params)
@@ -125,10 +181,9 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
                 description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", '"')
                 link = item['link']
                 
-                # 🎯 [수정 2] 본문이나 제목에 진짜 브랜드명이 들어있는지 교차 검증 (무관한 일상 글 배제)
                 text_to_check = (title + " " + description).lower()
                 
-                # '놀(NOL)'의 경우 일상어 '놀다' 등과 구분하기 위해 브랜드 고유 키워드 체크
+                # 브랜드 키워드 2차 검증 (스팸 및 일상 단어 차단)
                 if query == "놀(NOL)":
                     if "놀 카드" not in text_to_check and "nol 카드" not in text_to_check and "야놀자" not in text_to_check:
                         continue
@@ -136,7 +191,7 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
                     if clean_query.lower() not in text_to_check:
                         continue
                 
-                # 날짜 파싱 및 사용자가 설정한 기간 범위 체크
+                # 기간 필터 조건 체크
                 raw_pub_date = item.get('pubDate') if search_type == "news" else item.get('postdate')
                 parsed_date = parse_naver_date(raw_pub_date, search_type)
                 
@@ -181,80 +236,61 @@ def generate_brand_briefing(brand, df_brand):
 
 # 7. 실행 버튼 및 화면 레이아웃
 if st.button("📊 수집 및 요약 시작"):
-    if not selected_brands:
+    if not st.session_state.api_authenticated:
+        st.warning("⚠️ 화면 상단에서 네이버 API 인증키를 먼저 등록해 주세요.")
+    elif not selected_brands:
         st.warning("동향을 파악할 브랜드를 선택해 주세요.")
     else:
-        if not client_id or not client_secret:
-            st.info("💡 실시간 데이터 수집을 시작하려면 **왼쪽 사이드바**에 API 인증키를 입력해야 합니다.")
-        else:
-            all_dfs = []
-            with st.spinner("경쟁사 미디어 동향을 실시간 수집 및 중복 정제 중입니다..."):
-                for brand in selected_brands:
-                    if "뉴스" in channels:
-                        df_news = fetch_naver_data(brand, "news", start_date, start_date if start_date > end_date else end_date)
-                        if df_news is not None and not df_news.empty:
-                            all_dfs.append(df_news)
-                    if "블로그" in channels:
-                        df_blog = fetch_naver_data(brand, "blog", start_date, start_date if start_date > end_date else end_date)
-                        if df_blog is not None and not df_blog.empty:
-                            all_dfs.append(df_blog)
+        all_dfs = []
+        with st.spinner("경쟁사 미디어 동향을 실시간 수집 및 중복 정제 중입니다..."):
+            for brand in selected_brands:
+                if "뉴스" in channels:
+                    df_news = fetch_naver_data(brand, "news", start_date, start_date if start_date > end_date else end_date)
+                    if df_news is not None and not df_news.empty:
+                        all_dfs.append(df_news)
+                if "블로그" in channels:
+                    df_blog = fetch_naver_data(brand, "blog", start_date, start_date if start_date > end_date else end_date)
+                    if df_blog is not None and not df_blog.empty:
+                        all_dfs.append(df_blog)
+            
+            if all_dfs:
+                raw_df = pd.concat(all_dfs, ignore_index=True)
+                raw_count = len(raw_df)
                 
-                if all_dfs:
-                    raw_df = pd.concat(all_dfs, ignore_index=True)
-                    raw_count = len(raw_df)
-                    
-                    final_df = filter_duplicates(raw_df, threshold=0.75)
-                    filtered_count = len(final_df)
-                    st.success(f"설정 기간({start_date} ~ {end_date}) 동안 중복과 노이즈를 완벽 필터링하고 **최종 {filtered_count}건**의 관련성 높은 데이터를 추출했습니다!")
-                    
-                    # [섹션 1] 브랜드 브리핑
-                    st.header("🎯 브랜드별 전체 동향 브리핑")
-                    cols = st.columns(2)
-                    for i, brand in enumerate(selected_brands):
+                final_df = filter_duplicates(raw_df, threshold=0.75)
+                filtered_count = len(final_df)
+                st.success(f"설정 기간({start_date} ~ {end_date}) 동안 중복과 노이즈를 완벽 필터링하고 **최종 {filtered_count}건**의 관련성 높은 데이터를 추출했습니다!")
+                
+                # [섹션 1] 브랜드 브리핑
+                st.header("🎯 브랜드별 전체 동향 브리핑")
+                cols = st.columns(2)
+                for i, brand in enumerate(selected_brands):
+                    brand_df = final_df[final_df["브랜드"] == brand]
+                    col_idx = i % 2
+                    with cols[col_idx]:
+                        with st.container(border=True):
+                            briefing_text = generate_brand_briefing(brand, brand_df)
+                            st.markdown(briefing_text)
+                            
+                st.markdown("---")
+                
+                # [섹션 2] 상세 원문 (탭 구조)
+                st.header("📋 세부 원문 목록 및 상세 요약")
+                tabs = st.tabs(selected_brands)
+                for i, brand in enumerate(selected_brands):
+                    with tabs[i]:
                         brand_df = final_df[final_df["브랜드"] == brand]
-                        col_idx = i % 2
-                        with cols[col_idx]:
-                            with st.container(border=True):
-                                briefing_text = generate_brand_briefing(brand, brand_df)
-                                st.markdown(briefing_text)
-                                
-                    st.markdown("---")
-                    
-                    # [섹션 2] 상세 원문 (탭 구조)
-                    st.header("📋 세부 원문 목록 및 상세 요약")
-                    tabs = st.tabs(selected_brands)
-                    for i, brand in enumerate(selected_brands):
-                        with tabs[i]:
-                            brand_df = final_df[final_df["브랜드"] == brand]
-                            if brand_df.empty:
-                                st.info("선택하신 기간 내 수집된 세부 결과가 없습니다.")
-                            else:
-                                display_cols = ["구분", "제목", "요약본", "원문 링크", "게시일"]
-                                st.dataframe(
-                                    brand_df[display_cols],
-                                    column_config={
-                                        "원문 링크": st.column_config.LinkColumn("원문 보러가기")
-                                    },
-                                    use_container_width=True,
-                                    hide_index=True
-                                )
-                else:
-                    st.warning("선택하신 기간 내에 발행된 관련 기사나 포스팅이 존재하지 않습니다. 검색 기간을 늘려보세요!")
-
-
-# -----------------------------------------------------------------
-# 🎯 [핵심만 남긴 심플 이용 안내 가이드]
-# -----------------------------------------------------------------
-st.markdown("---")
-with st.container(border=True):
-    st.markdown("""
-    ### 🔑 네이버 API 인증키 발급 및 이용 안내
-    본 대시보드는 네이버 실시간 검색 데이터를 안전하게 수집하기 위해 사용자 개인 API 인증키를 사용합니다.
-    
-    1. **[네이버 개발자 센터](https://developers.naver.com/main/)** 로그인 후 접속
-    2. 상단 메뉴 **`Application` ➡️ `내 애플리케이션`** 이동
-    3. **`애플리케이션 등록`** 진행
-       - **사용 API**: `검색` 선택 후 추가
-       - **로그인 오픈 API 서비스 환경**: `웹 설정` 선택 ➡️ 현재 사용 중인 대시보드 URL 주소 입력
-    4. 발급 완료된 **`Client ID`**와 **`Client Secret`**을 왼쪽 사이드바에 복사하여 입력
-    """)
+                        if brand_df.empty:
+                            st.info("선택하신 기간 내 수집된 세부 결과가 없습니다.")
+                        else:
+                            display_cols = ["구분", "제목", "요약본", "원문 링크", "게시일"]
+                            st.dataframe(
+                                brand_df[display_cols],
+                                column_config={
+                                    "원문 링크": st.column_config.LinkColumn("원문 보러가기")
+                                },
+                                use_container_width=True,
+                                hide_index=True
+                            )
+            else:
+                st.warning("선택하신 기간 내에 발행된 관련 기사나 포스팅이 존재하지 않습니다. 검색 기간을 늘려보세요!")
