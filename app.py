@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import datetime
 import email.utils
+import base64
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -15,16 +16,33 @@ st.title("📰 경쟁사 뉴스 및 블로그 모니터링 요약")
 st.markdown("설정한 기간 동안 **여기어때, 트립닷컴, 에어비앤비, 모두투어, 클룩, NOL** 관련 핵심 동향을 분석합니다.")
 
 # -----------------------------------------------------------------
-# 🔑 [UI 개선] API 세션 키 상태 관리 및 메인 화면 입력창
+# 🔑 [자동 저장 기능] URL 파라미터에서 기존에 저장된 API 키 복구하기
 # -----------------------------------------------------------------
-if "naver_client_id" not in st.session_state:
-    st.session_state.naver_client_id = ""
-if "naver_client_secret" not in st.session_state:
-    st.session_state.naver_client_secret = ""
-if "api_authenticated" not in st.session_state:
-    st.session_state.api_authenticated = False
+def encode_key(val):
+    """보안을 위해 API 키 값을 가볍게 base64로 인코딩합니다."""
+    return base64.b64encode(val.encode()).decode() if val else ""
 
-# API 인증 완료 여부에 따라 UI 분기
+def decode_key(val):
+    """인코딩된 값을 원래 API 키로 디코딩합니다."""
+    try:
+        return base64.b64decode(val.encode()).decode() if val else ""
+    except Exception:
+        return ""
+
+# 주소창(Query Params)에 이미 저장된 키가 있는지 확인하여 자동 로그인 세팅
+query_params = st.query_params
+saved_id = decode_key(query_params.get("cid", ""))
+saved_secret = decode_key(query_params.get("csec", ""))
+
+if "naver_client_id" not in st.session_state:
+    st.session_state.naver_client_id = saved_id
+if "naver_client_secret" not in st.session_state:
+    st.session_state.naver_client_secret = saved_secret
+if "api_authenticated" not in st.session_state:
+    # 이미 주소창에 저장된 유효한 키가 있다면 즉시 인증 처리
+    st.session_state.api_authenticated = bool(saved_id and saved_secret)
+
+# API 인증 UI 및 로그인 제어
 if not st.session_state.api_authenticated:
     st.markdown("### 🔑 실시간 데이터 수집을 위한 API 인증")
     st.info("실시간 동향 수집을 시작하려면 아래에 네이버 검색 API 인증키를 입력해 주세요.")
@@ -34,25 +52,36 @@ if not st.session_state.api_authenticated:
         input_id = st.text_input("Naver Client ID", type="password", key="temp_id")
     with col_secret:
         input_secret = st.text_input("Naver Client Secret", type="password", key="temp_secret")
+    
+    # 🎯 [추가] 브라우저 저장 체크박스
+    remember_me = st.checkbox("💾 내 브라우저에 이 API 키 기억하기 (이 대시보드를 북마크에 추가해 쓰세요!)", value=True)
         
     if st.button("🔑 인증키 등록 및 로그인"):
         if input_id and input_secret:
             st.session_state.naver_client_id = input_id
             st.session_state.naver_client_secret = input_secret
             st.session_state.api_authenticated = True
-            st.rerun()  # 화면을 즉시 새로고침하여 입력창을 숨김
+            
+            # 주소창에 정보 인코딩하여 저장
+            if remember_me:
+                st.query_params["cid"] = encode_key(input_id)
+                st.query_params["csec"] = encode_key(input_secret)
+                
+            st.rerun()  # 화면 새로고침하여 즉시 반영
         else:
             st.error("Client ID와 Client Secret을 모두 입력해 주세요.")
 else:
-    # 인증 완료 상태 메시지 및 로그아웃(초기화) 버튼 제공
+    # 인증 완료 상태 및 로그아웃 버튼
     col_status, col_btn = st.columns([5, 1])
     with col_status:
-        st.success("✅ 네이버 API 인증 완료 - 대시보드가 정상적으로 가동 중입니다.")
+        st.success("✅ 네이버 API 인증 완료 - 대시보드가 정상 가동 중입니다.")
     with col_btn:
-        if st.button("🔌 API 인증 로그아웃"):
+        if st.button("🔌 API 인증 정보 초기화"):
             st.session_state.naver_client_id = ""
             st.session_state.naver_client_secret = ""
             st.session_state.api_authenticated = False
+            # 주소창에서도 정보 삭제
+            st.query_params.clear()
             st.rerun()
 
 # 2. 사이드바 구성
@@ -75,9 +104,7 @@ channels = st.sidebar.multiselect(
     default=["뉴스", "블로그"]
 )
 
-# -----------------------------------------------------------------
-# 🎯 [UI 개선] API 미인증 시에만 사이드바 하단에 이용 안내 노출 (인증 시 자동 숨김)
-# -----------------------------------------------------------------
+# 💡 API 미인증 시에만 사이드바 하단에 이용 안내 노출 (인증 시 자동 숨김)
 if not st.session_state.api_authenticated:
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
@@ -91,9 +118,7 @@ if not st.session_state.api_authenticated:
     4. 발급된 **Client ID / Secret**을 메인 화면에 입력
     """)
 
-# -----------------------------------------------------------------
-# API 로직 데이터 바인딩
-# -----------------------------------------------------------------
+# API 로직 바인딩
 client_id = st.session_state.naver_client_id
 client_secret = st.session_state.naver_client_secret
 
@@ -151,7 +176,7 @@ def filter_duplicates(df, threshold=0.75):
     return df.loc[keep_indices].reset_index(drop=True)
 
 
-# 5. 데이터 수집 및 정제 함수 (정확도순 수집 + 키워드 상호 대조)
+# 5. 데이터 수집 및 정제 함수
 def fetch_naver_data(query, search_type, start_dt, end_dt):
     if not client_id or not client_secret:
         return None
@@ -164,7 +189,7 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
     params = {
         "query": query,
         "display": 100,
-        "sort": "sim"  # 브랜드 데이터 품질 향상을 위해 정확도순으로 유지
+        "sort": "sim"
     }
     
     clean_query = query.split("(")[0].strip()
@@ -183,7 +208,7 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
                 
                 text_to_check = (title + " " + description).lower()
                 
-                # 브랜드 키워드 2차 검증 (스팸 및 일상 단어 차단)
+                # 브랜드 키워드 검증
                 if query == "놀(NOL)":
                     if "놀 카드" not in text_to_check and "nol 카드" not in text_to_check and "야놀자" not in text_to_check:
                         continue
@@ -191,7 +216,6 @@ def fetch_naver_data(query, search_type, start_dt, end_dt):
                     if clean_query.lower() not in text_to_check:
                         continue
                 
-                # 기간 필터 조건 체크
                 raw_pub_date = item.get('pubDate') if search_type == "news" else item.get('postdate')
                 parsed_date = parse_naver_date(raw_pub_date, search_type)
                 
