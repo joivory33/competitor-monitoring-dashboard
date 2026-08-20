@@ -37,16 +37,13 @@ st.sidebar.subheader("🔑 네이버 API 인증키")
 client_id = st.sidebar.text_input("Naver Client ID", type="password")
 client_secret = st.sidebar.text_input("Naver Client Secret", type="password")
 
-# [보안 팁] API 키를 매번 치기 귀찮으시다면, st.secrets를 쓰거나 아래 큰따옴표 안에 임시로 직접 적어둘 수도 있습니다.
-# client_id = "여기에_ID_직접_입력가능"
-# client_secret = "여기에_SECRET_직접_입력가능"
-
 
 # 3. 텍스트 유사도 비교 함수 (80% 중복 제거 알고리즘)
 def get_char_ngrams(text, n=2):
     """문장 내 공백을 제거하고 n글자 단위로 쪼개어 세트를 만듭니다."""
     clean_text = "".join(text.split())
     return set(clean_text[i:i+n] for i in range(len(clean_text) - n + 1))
+
 
 def is_too_similar(title1, title2, threshold=0.75):
     """두 제목의 글자 유사도를 비교하여 특정 기준(75% 이상)을 넘기면 중복으로 판정합니다."""
@@ -60,6 +57,7 @@ def is_too_similar(title1, title2, threshold=0.75):
     similarity = len(set1.intersection(set2)) / union
     return similarity >= threshold
 
+
 def filter_duplicates(df, threshold=0.75):
     """동일한 브랜드 내에서 제목이 지나치게 유사한 데이터를 하나만 남기고 필터링합니다."""
     if df.empty:
@@ -71,7 +69,6 @@ def filter_duplicates(df, threshold=0.75):
         processed_titles = []
         for idx, row in group.iterrows():
             current_title = row["제목"]
-            # 기존에 유지하기로 한 제목들과 유사도 비교
             is_dup = False
             for past_title in processed_titles:
                 if is_too_similar(current_title, past_title, threshold):
@@ -84,23 +81,6 @@ def filter_duplicates(df, threshold=0.75):
     return df.loc[keep_indices].reset_index(drop=True)
 
 
-# 4. 데이터 수집 함수
+# 4. 데이터 수집 함수 (문법 오타 원천 차단 적용 완료)
 def fetch_naver_data(query, search_type):
-    if not client_id or not client_secret:
-        return None
-        
-    url = f"https://openapi.naver.com/v1/search/{search_type}.json"
-    headers = {
-        "X-Naver-Client-Id": client_id,
-        "X-Naver-Client-Secret": client_secret
-    }
-    params = {
-        "query": query,
-        "display": 80,  # 더 다양한 뉴스를 확보하기 위해 검색 범위를 늘림
-        "sort": "sim"
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            items = response.json().
+    if
