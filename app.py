@@ -104,18 +104,22 @@ channels = st.sidebar.multiselect(
     default=["뉴스", "블로그"]
 )
 
-# 💡 API 미인증 시에만 사이드바 하단에 이용 안내 노출 (인증 시 자동 숨김)
+# 💡 API 미인증 시에만 사이드바 하단에 최신 족집게 발급 가이드 노출 (인증 시 자동 숨김)
 if not st.session_state.api_authenticated:
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
-    ### 🔑 API 인증키 발급 가이드
+    ### 🔑 1분 API 키 발급 가이드
     
-    1. **[네이버 개발자 센터](https://developers.naver.com/main/)** 접속/로그인
-    2. **`Application` ➡️ `내 애플리케이션`**
-    3. **`애플리케이션 등록`** 진행
-       - **사용 API**: `검색` 추가
-       - **서비스 환경**: `웹 설정` 선택 후 현재 대시보드 URL 주소 입력
-    4. 발급된 **Client ID / Secret**을 메인 화면에 입력
+    네이버 정책 변경으로 인해 검색 API는 **네이버 클라우드 플랫폼(NCP)**에서 발급받으셔야 합니다.
+    
+    1. **[네이버 클라우드 콘솔](https://www.ncloud.com/)** 로그인
+    2. 좌측 메뉴 **`All Services` ➡️ `Application Services` ➡️ `NAVER API HUB`** 클릭 후 **`+ Application 등록`** 진행
+    3. **사용 API**: 드롭다운에서 **`네이버 로그인`**만 체크 선택
+    4. **제공 정보**: 개인정보 보호 및 빠른 발급을 위해 **모든 체크박스 해제 (전부 비워두기)**
+    5. **서비스 환경**: **`PC 웹`** 선택 후 아래 주소를 복사해 두 칸 모두 동일하게 입력
+       * **서비스 URL** & **Callback URL**: 
+         `https://instagram-insight-dashboard-yfksdz8sudm8rqyrxy3cqz.streamlit.app/`
+    6. 등록 완료 후 발급된 **Client ID / Secret**을 메인 화면에 입력!
     """)
 
 # API 로직 바인딩
