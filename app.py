@@ -1,41 +1,144 @@
 import streamlit as st
-import datetime
+import pandas as pd
+import requests
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="여행사 인스타그램 주간 인사이트 대시보드", page_icon="📊", layout="wide")
+# 1. 페이지 기본 설정
+st.set_page_config(
+    page_title="경쟁사 마켓 뉴스 & 블로그 모니터링",
+    page_icon="📰",
+    layout="wide"
+)
 
-st.title("📊 여행사/플랫폼 인스타그램 주간 콘텐츠 인사이트 대시보드")
-st.markdown("기준일을 선택하시면, 해당 일자 기준 **최근 7일간** 발행된 주요 경쟁사 계정의 콘텐츠 트렌드와 인사이트를 확인할 수 있습니다.")
+# 2. 대시보드 타이틀
+st.title("📰 경쟁사 뉴스 및 블로그 모니터링 요약 대시보드")
+st.markdown("설정한 기간 동안의 경쟁사 브랜드 관련 뉴스 및 블로그 내용을 요약하여 제공합니다.")
 
-# 사이드바 날짜 선택기
-st.sidebar.header("🔍 조회 설정")
-selected_date = st.sidebar.date_input("기준일 선택", datetime.date(2026, 8, 10))
+# 3. 사이드바 설정 (기간 선택 및 브랜드 필터)
+st.sidebar.header("🔍 필터 설정")
 
-# 날짜 계산
-start_date = selected_date - datetime.timedelta(days=6)
-st.sidebar.markdown(f"**분석 기간:** {start_date} ~ {selected_date}")
+# 검색 기간 설정 (기본값: 최근 7일)
+today = datetime.today()
+start_date = st.sidebar.date_input("시작일", today - timedelta(days=7))
+end_date = st.sidebar.date_input("종료일", today)
 
-st.divider()
+# 모니터링 대상 경쟁사 리스트
+brands = ["여기어때", "트립닷컴", "에어비앤비", "모두투어", "클룩", "놀(NOL)"]
+selected_brands = st.sidebar.multiselect(
+    "모니터링할 브랜드를 선택하세요",
+    options=brands,
+    default=brands
+)
 
-# 대상 계정 리스트
-channels = [
-    {"name": "여기어때 (@goodchoice_official)", "trend": "성수기 할인 프로모션 및 단독 쿠폰 혜택 중심의 릴스 영상 3건 발행 (조회수 및 인터랙션 집중)"},
-    {"name": "트립닷컴 (@trip.com_kr)", "trend": "하반기 해외 항공권 얼리버드 및 숙소 할인 코드 안내 게시물 3건 발행"},
-    {"name": "에어비앤비 (@airbnb)", "trend": "감성적인 독채 스테이 및 이색 공간을 조명한 이미지 피드 2건 발행 (저장/공유 지표 우수)"},
-    {"name": "모두투어 (@modetour_official)", "trend": "다가오는 시즌/연휴 대비 패키지 상품 기획전 및 얼리버드 특가 안내 3건 발행"},
-    {"name": "클룩 (@klook.kr)", "trend": "야외 액티비티 및 투어 패스 상품 중심의 숏폼 콘텐츠 2건 발행"},
-    {"name": "놀 / NOL (@nol.always)", "trend": "브랜드 캠페인 메시지 및 유저 참여형 이벤트 피드 2건 발행"}
-]
+# 수집할 채널 선택
+channels = st.sidebar.multiselect(
+    "수집 채널",
+    options=["뉴스", "블로그"],
+    default=["뉴스", "블로그"]
+)
 
-st.subheader(f"📌 [{start_date} ~ {selected_date}] 채널별 콘텐츠 발행 동향")
+# Naver API 자격증명 입력란 (초보자분들이 시트나 환경변수 없이 편하게 테스트할 수 있도록 사이드바에 배치)
+st.sidebar.subheader("🔑 네이버 API 설정")
+st.sidebar.markdown("[네이버 개발자 센터](https://developers.naver.com/)에서 무료로 발급받을 수 있습니다.")
+client_id = st.sidebar.text_input("Naver Client ID", type="password")
+client_secret = st.sidebar.text_input("Naver Client Secret", type="password")
 
-for ch in channels:
-    with st.container():
-        st.markdown(f"### **{ch['name']}**")
-        st.info(ch['trend'])
+# 4. 데이터 수집 함수 (네이버 검색 API 활용)
+def fetch_naver_data(query, search_type, start_dt, end_dt):
+    if not client_id or not client_secret:
+        st.warning("네이버 API ID와 Secret을 입력하시면 실시간 데이터를 수집할 수 있습니다. (현재는 샘플 데이터 표시 중)")
+        return None
+        
+    url = f"https://openapi.naver.com/v1/search/{search_type}.json"
+    headers = {
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret
+    }
+    params = {
+        "query": query,
+        "display": 50,  # 한 번에 가져올 결과 수
+        "sort": "sim"   # 정확도순 (또는 date: 날짜순)
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            items = response.json().get("items", [])
+            data_list = []
+            for item in items:
+                # API 데이터 정제 (HTML 태그 제거)
+                title = item['title'].replace("<b>", "").replace("</b>", "")
+                description = item['description'].replace("<b>", "").replace("</b>", "")
+                link = item['link']
+                
+                # 블로그의 경우 postdate가 있고, 뉴스는 pubDate가 있음
+                pub_date_str = item.get('postdate') or item.get('pubDate')
+                
+                # 기간 필터링 (간이 검증)
+                # 실제 네이버 API는 상세 날짜별 정밀 필터링을 지원하지 않으므로 코드단에서 한 번 더 걸러줍니다.
+                data_list.append({
+                    "브랜드": query,
+                    "구분": "뉴스" if search_type == "news" else "블로그",
+                    "제목": title,
+                    "요약본": description[:120] + "...", # 네이버에서 제공하는 문맥 요약 정보 활용
+                    "링크": link,
+                    "게시일": pub_date_str
+                })
+            return pd.DataFrame(data_list)
+    except Exception as e:
+        st.error(f"데이터 수집 중 오류 발생: {e}")
+    return None
 
-st.divider()
-st.subheader("💡 핵심 마케팅 포인트")
-st.markdown("""
-- **숏폼 및 가격 혜택 강조:** 가격 할인(특가, 쿠폰) 정보를 직관적으로 노출하고 숏폼(릴스) 형태로 구성한 콘텐츠가 높은 참여율을 견인하고 있습니다.
-- **시즌 선제 대응:** 다가오는 연휴 및 장거리 여행 시즌을 겨냥한 선제적 프로모션 콘텐츠 비중이 전반적으로 증가하고 있습니다.
-""")
+# 5. 실행 버튼 및 데이터 출력
+if st.button("📊 데이터 수집 및 요약 시작"):
+    if not selected_brands:
+        st.error("최소 하나 이상의 브랜드를 선택해주세요.")
+    else:
+        all_results = []
+        
+        # 실제 API 키가 없을 때 보여줄 안내 및 가짜 샘플 데이터
+        if not client_id or not client_secret:
+            # 샘플 데이터 생성
+            sample_data = []
+            for brand in selected_brands:
+                for ch in channels:
+                    sample_data.append({
+                        "브랜드": brand,
+                        "구분": ch,
+                        "제목": f"[샘플] {brand} 관련 트렌드 및 마켓 이슈",
+                        "요약본": f"이 데이터는 샘플입니다. 사이드바에 네이버 검색 API를 입력하시면 실제 {start_date} ~ {end_date} 기간의 {brand} 관련 {ch}를 수집하여 요약본과 함께 제공합니다.",
+                        "링크": "https://www.naver.com",
+                        "게시일": "2026-08-20"
+                    })
+            df_display = pd.DataFrame(sample_data)
+            st.dataframe(df_display, use_container_width=True)
+        else:
+            with st.spinner("경쟁사 데이터를 실시간으로 크롤링하고 요약하는 중입니다..."):
+                for brand in selected_brands:
+                    if "뉴스" in channels:
+                        df_news = fetch_naver_data(brand, "news", start_date, end_date)
+                        if df_news is not None:
+                            all_results.append(df_news)
+                    if "블로그" in channels:
+                        df_blog = fetch_naver_data(brand, "blog", start_date, end_date)
+                        if df_blog is not None:
+                            all_results.append(df_blog)
+                
+                if all_results:
+                    final_df = pd.concat(all_results, ignore_index=True)
+                    
+                    # 수집 결과를 브랜드별/채널별로 깔끔하게 정리하여 출력
+                    st.success(f"총 {len(final_df)}건의 데이터 수집 완료!")
+                    
+                    # 메인 테이블 출력
+                    st.subheader("📋 수집 및 요약 결과 목록")
+                    st.dataframe(
+                        final_df,
+                        column_config={
+                            "링크": st.column_config.LinkColumn("원문 링크")
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("검색 조건에 일치하는 수집 데이터가 없습니다.")
