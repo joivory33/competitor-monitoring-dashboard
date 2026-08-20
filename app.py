@@ -12,6 +12,19 @@ st.set_page_config(
     layout="wide"
 )
 
+# 💡 사이드바 내부의 코드 블록(code)과 pre 태그가 가로 너비를 초과하지 않고 자동 줄바꿈되도록 강제 설정
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code {
+        white-space: pre-wrap !important;
+        word-break: break-all !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("📰 경쟁사 뉴스 및 블로그 모니터링 요약")
 st.markdown("설정한 기간 동안 **여기어때, 트립닷컴, 에어비앤비, 모두투어, 클룩, NOL** 관련 핵심 동향을 분석합니다.")
 
@@ -106,14 +119,14 @@ channels = st.sidebar.multiselect(
     default=["뉴스", "블로그"]
 )
 
-# 💡 [업데이트 반영] 기존 가이드를 완전히 지우고, 사이드바 하단에 1분 초밀착 우회 발급 가이드 이식
+# 💡 사이드바 하단에 모바일/다양한 해상도에서도 가로 스크롤 없이 쏙 들어오는 가이드 이식
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔑 네이버 API 발급 가이드")
 
 with st.sidebar.expander("📍 [필독] 1분 API 발급 가이드", expanded=True):
     st.markdown("""
     **⚠️ 네이버 검색 API 정책 변경 안내**
-    현재 네이버 검색 API 발급 창구가 *NCP*로 이관되어, 기존 개발자 센터 등록 화면에서는 '검색' API 항목이 노출되지 않습니다.
+    현재 네이버 검색 API 발급 창구가 *네이버 클라우드 플랫폼(NCP)*으로 이관되어, 기존 개발자 센터 등록 화면에서는 '검색' API 항목이 노출되지 않습니다.
     
     아래 가이드에 따라 **[네이버 로그인] API를 활용하여 우회 등록**하시면 1분 안에 완료됩니다.
     
@@ -121,20 +134,19 @@ with st.sidebar.expander("📍 [필독] 1분 API 발급 가이드", expanded=Tru
     
     ### 1️⃣ 애플리케이션 등록 및 API 선택
     * **이름:** `검색 키워드` 입력
-    * **사용 API:** 드롭다운 목록에서 **[네이버 로그인]** 선택
+    * **사용 API:** 목록에서 **[네이버 로그인]** 선택
     
-    ### 2️⃣ 제공 정보 설정 (최소 선택)
-    *보안 심사 없이 즉시 키를 발급받기 위해 아래 3개 항목만 선택하고 나머지는 모두 해제합니다.*
-    * **회원이름:** `필수` 또는 `추가` 선택
-    * **성별:** `필수` 또는 `추가` 선택
-    * **출생연도:** `필수` 또는 `추가` 선택
+    ### 2️⃣ 제공 정보 설정 (최소 필수 정보)
+    *보안 심사 없이 바로 키를 발급받기 위해 아래 3가지 항목만 간략히 선택해 주세요.*
+    * **회원이름, 성별, 출생연도** (이 3가지만 선택하고 나머지는 모두 해제)
     
     ### 3️⃣ 서비스 환경 설정 (PC 웹)
-    * **환경 추가:** **[PC 웹]** 선택 후 추가
-    * **서비스 URL 및 Callback URL:** 아래의 대시보드 주소를 두 곳 모두 동일하게 입력합니다.
-      ```text
-      https://instagram-insight-dashboard-yfksdz8sudm8rqyrxy3cqz.streamlit.app/
-      ```
+    * **환경 추가:** **[PC 웹]** 선택 후 등록
+    * **서비스 URL 및 Callback URL:** 아래 주소를 두 곳 모두 동일하게 입력합니다.
+    
+    ```text
+    https://instagram-insight-dashboard-yfksdz8sudm8rqyrxy3cqz.streamlit.app/
+    ```
     """)
 
 # API 로직 바인딩
@@ -265,7 +277,7 @@ def generate_brand_briefing(brand, df_brand):
     blog_count = len(df_brand[df_brand["구분"] == "블로그"])
     
     brief = f"**📢 {brand} 동향 브리핑**\n"
-    brief += f"- 이번 기간 동안 총 **{len(df_brand)}건**의 유의미한 콘텐츠(뉴스 {news_count}건, 블로그 {blog_count}건)가 수집되었습니다.\n"
+    brief += f"- 이번 기간 동안 총 **{len(df_brand)}건**의 유의미한 콘텐츠(뉴스 {news_count}건, blog {blog_count}건)가 수집되었습니다.\n"
     
     if news_count > 0:
         top_news = df_brand[df_brand["구분"] == "뉴스"].iloc[0]["제목"]
