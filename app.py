@@ -114,7 +114,7 @@ cluster_threshold = st.sidebar.slider(
     help="값이 낮을수록 비슷한 주제의 기사를 더 넓게 하나로 묶습니다."
 )
 
-# 💡 [신규] AI 정밀 인사이트(Gemini) 토글
+# 💡 AI 정밀 인사이트(Gemini) 토글
 st.sidebar.markdown("---")
 use_gemini = st.sidebar.toggle("🤖 AI 정밀 인사이트(Gemini)", value=False,
                                help="켜면 Gemini가 기사 내용을 읽고 인사이트/감성을 재생성합니다. (키 필요)")
@@ -125,24 +125,38 @@ if use_gemini:
     gemini_model = st.sidebar.text_input("모델명", value="gemini-2.5-flash",
                                          help="본인이 쓰던 작동 모델명으로 맞춰주세요.")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔑 네이버 API 발급 가이드")
-with st.sidebar.expander("📍 [필독] 1분 API 발급 가이드", expanded=True):
-    st.markdown("""
-    ### 1️⃣ 애플리케이션 등록 및 API 선택
-    * **이름:** `검색 키워드` 입력
-    * **사용 API:** 목록에서 **[네이버 로그인]** 선택
+# -----------------------------------------------------------------
+# 🔑 네이버 API 발급 가이드 (아직 인증하지 않은 사용자에게만 노출)
+# -----------------------------------------------------------------
+if not st.session_state.api_authenticated:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔑 네이버 API 발급 가이드")
 
-    ### 2️⃣ 제공 정보 설정
-    * **회원이름, 성별, 출생연도**만 필수/추가로 체크 (나머지는 모두 체크 해제)
+    # 💡 발급 페이지 바로가기 링크 버튼
+    st.sidebar.link_button(
+        "🔗 네이버 개발자센터 발급 페이지 바로가기",
+        "https://developers.naver.com/apps/#/register",
+        use_container_width=True
+    )
 
-    ### 3️⃣ 서비스 환경 설정 (PC 웹)
-    * **환경 추가:** **[PC 웹]** 선택 후 등록
-    * **서비스 URL 및 Callback URL:**
-    ```text
-    https://instagram-insight-dashboard-yfksdz8sudm8rqyrxy3cqz.streamlit.app/
-    ```
-    """)
+    with st.sidebar.expander("📍 [필독] 1분 API 발급 가이드", expanded=True):
+        st.markdown("""
+        ### 1️⃣ 애플리케이션 등록 및 API 선택
+        * 위 **[🔗 발급 페이지 바로가기]** 버튼을 눌러 이동합니다.
+          (직접 접속: https://developers.naver.com/apps/#/register )
+        * **이름:** `검색 키워드` 입력
+        * **사용 API:** 목록에서 **[네이버 로그인]** 선택
+
+        ### 2️⃣ 제공 정보 설정
+        * **회원이름, 성별, 출생연도**만 필수/추가로 체크 (나머지는 모두 체크 해제)
+
+        ### 3️⃣ 서비스 환경 설정 (PC 웹)
+        * **환경 추가:** **[PC 웹]** 선택 후 등록
+        * **서비스 URL 및 Callback URL:**
+        ```text
+        https://instagram-insight-dashboard-yfksdz8sudm8rqyrxy3cqz.streamlit.app/
+        ```
+        """)
 
 client_id = st.session_state.naver_client_id
 client_secret = st.session_state.naver_client_secret
@@ -239,7 +253,6 @@ def make_insight(title, desc):
 # 4-3. [옵션] Gemini 정밀 인사이트/감성 (브랜드별 배치 1회 호출)
 # -----------------------------------------------------------------
 def gemini_enrich(brand, clusters, api_key, model):
-    """clusters의 대표 제목+요약본을 배치로 보내 인사이트/감성을 재생성."""
     if not api_key or not clusters:
         return clusters
     listing = "\n".join(
