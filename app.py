@@ -13,9 +13,20 @@ st.set_page_config(page_title="경쟁사 마켓 트렌드 모니터링", page_ic
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"] pre, [data-testid="stSidebar"] code {
+    /* 사이드바 내부의 코드·링크·문단이 박스를 넘지 않고 자동 줄바꿈되도록 강제 */
+    [data-testid="stSidebar"] pre,
+    [data-testid="stSidebar"] code {
         white-space: pre-wrap !important;
         word-break: break-all !important;
+    }
+    [data-testid="stSidebar"] a {
+        word-break: break-all !important;
+        overflow-wrap: anywhere !important;
+    }
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] li {
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
     }
     </style>
     """,
@@ -143,7 +154,6 @@ if not st.session_state.api_authenticated:
         st.markdown("""
         ### 1️⃣ 애플리케이션 등록 및 API 선택
         * 위 **[🔗 발급 페이지 바로가기]** 버튼을 눌러 이동합니다.
-          (직접 접속: https://developers.naver.com/apps/#/register )
         * **이름:** `검색 키워드` 입력
         * **사용 API:** 목록에서 **[네이버 로그인]** 선택
 
