@@ -26,7 +26,7 @@ st.markdown(
 )
 
 st.title("📰 경쟁사 뉴스 및 블로그 모니터링 요약")
-st.markdown("설정한 기간 동안 **여기어때, 트립닷컴, 에어비앤비, 모두투어, 클룩, NOL** 관련 핵심 동향을 분석합니다.")
+st.markdown("설정한 기간 동안 **하나투어, 여기어때, 트립닷컴, 에어비앤비, 모두투어, 클룩, NOL** 관련 핵심 동향을 분석합니다.")
 
 # -----------------------------------------------------------------
 # 🔑 [자동 저장 기능] URL 파라미터에서 기존에 저장된 API 키 복구하기
@@ -106,7 +106,8 @@ today = datetime.date.today()
 start_date = st.sidebar.date_input("시작일", today - datetime.timedelta(days=7))
 end_date = st.sidebar.date_input("종료일", today)
 
-brands = ["여기어때", "트립닷컴", "에어비앤비", "모두투어", "클룩", "놀(NOL)"]
+# 💡 자사 브랜드 '하나투어'를 목록 맨 앞에 추가
+brands = ["하나투어", "여기어때", "트립닷컴", "에어비앤비", "모두투어", "클룩", "놀(NOL)"]
 selected_brands = st.sidebar.multiselect(
     "모니터링 대상 브랜드",
     options=brands,
